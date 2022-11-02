@@ -1,0 +1,109 @@
+#include <syscall.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <time.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <dlfcn.h>
+
+int our_init_data = 30;
+int our_noinit_data;
+long ret = 0;
+pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
+
+void* our_func()
+{
+        pthread_mutex_lock( &mutex1 );
+  	int our_local_data = 30;
+    	int* heapAddr = malloc(sizeof(int));
+	void *fHandle;
+	void *func;
+	fHandle = dlopen("/lib/x86_64-linux-gnu/libc.so.6",RTLD_LAZY);
+	printf("libc base: %lx\n",*(unsigned long*)fHandle);
+	if (!fHandle) {
+        		fprintf (stderr, "%s\n", dlerror());
+        		exit(1);
+    	}
+    	dlerror();
+	func = dlsym(fHandle,"printf");
+	static __thread int tls = 0;
+    	unsigned long va[7]= {
+				(unsigned long)&our_init_data,
+				(unsigned long)&our_noinit_data,
+				(unsigned long)&our_func,
+				(unsigned long)&our_local_data,
+				(unsigned long)(unsigned long*)func,
+				(unsigned long)heapAddr,
+				(unsigned long)&tls
+				};
+    	unsigned long pa[7];
+    	ret = syscall(334,va,pa,7);
+	printf("\nPid of the process is = %d", getpid());
+	printf("\nAddresses which fall into:");
+	printf("\n 1) Data   (va/pa) = %16lx / %16lx  ", va[0], pa[0]);
+	printf("\n 2) BSS    (va/pa) = %16lx / %16lx  ", va[1], pa[1]);
+	printf("\n 3) Code   (va/pa) = %16lx / %16lx  ", va[2], pa[2]);
+	printf("\n 4) Stack  (va/pa) = %16lx / %16lx  ", va[3], pa[3]);
+	printf("\n 5) Library(va/pa) = %16lx / %16lx", va[4], pa[4]);
+	printf("\n 6) heap   (va/pa) = %16lx / %16lx", va[5], pa[5]);
+	printf("\n 7) thread (va/pa) = %16lx / %16lx\n", va[6], pa[6]);
+	tls++;
+	printf("%d\n",tls);
+	dlclose(fHandle);
+	pthread_mutex_unlock( &mutex1 );
+	pthread_exit(NULL);
+}
+
+int main(){
+	int our_local_data = 30;
+	int* heapAddr = malloc(sizeof(int));
+	static __thread int tls = 0;
+	char test = '\n';
+	printf("start!! %c\n",test);
+	void* fHandle;
+	void* func;	
+	fHandle = dlopen("/lib/x86_64-linux-gnu/libc.so.6",RTLD_LAZY);
+	printf("libc base: %lx\n", *(unsigned long*)fHandle);
+	if (!fHandle) {
+        		fprintf (stderr, "%s\n", dlerror());
+        		exit(1);
+    	}
+    	dlerror();
+	func = dlsym(fHandle,"printf");
+	unsigned long va[7]= {
+				(unsigned long)&our_init_data,
+				(unsigned long)&our_noinit_data,
+				(unsigned long)&our_func,
+				(unsigned long)&our_local_data,
+				(unsigned long)(unsigned long*)func,
+				(unsigned long)heapAddr,
+				(unsigned long)&tls
+				};
+    	unsigned long pa[7];
+    	ret = syscall(334,va,pa,7);
+	printf("Main thread\n");
+	printf("\nPid of the process is = %d", getpid());
+	printf("\nAddresses which fall into:");
+	printf("\n 1) Data   (va/pa) = %16lx / %16lx  ", va[0], pa[0]);
+	printf("\n 2) BSS    (va/pa) = %16lx / %16lx  ", va[1], pa[1]);
+	printf("\n 3) Code   (va/pa) = %16lx / %16lx  ", va[2], pa[2]);
+	printf("\n 4) Stack  (va/pa) = %16lx / %16lx  ", va[3], pa[3]);
+	printf("\n 5) Library(va/pa) = %16lx / %16lx", va[4], pa[4]);
+	printf("\n 6) heap   (va/pa) = %16lx / %16lx", va[5], pa[5]);
+	printf("\n 7) thread (va/pa) = %16lx / %16lx\n", va[6], pa[6]);
+	tls++;
+	printf("%d\n",tls);
+	pthread_t threads[2];
+	dlclose(fHandle);
+	for (int i = 0; i < 2; i++) {
+        	pthread_create(&threads[i], NULL, our_func, NULL);
+        }
+        for (int i = 0; i < 2; i++) {
+        	pthread_join(threads[i], NULL);
+        }
+	
+        if(ret > 0) printf("error!!!");
+        sleep(30);
+        return 0;
+}
